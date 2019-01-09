@@ -32,6 +32,28 @@ JStage.getEl = function(el) {
     }
 };
 
+JStage.normalizeTime = function(time) {
+    if (!time) {
+        return 0;
+    }
+
+    if (time.indexOf('ms') > 0) {
+        return time.slice(0, -2) - 0;
+    } else if (time.indexOf('s') > 0) {
+        return time.slice(0, -1) * 1000;
+    } else if (isNaN(time)) {
+        throw 'Invalid time';
+    }
+};
+
+JStage.getStyle = function(el, prop) {
+    if (typeof getComputedStyle === undefined) {
+        return el.currentStyle[prop];
+    } else {
+        return getComputedStyle(el, null).getPropertyValue(prop);
+    }
+};
+
 JStage.IS_IDLE = 0;
 JStage.IS_FINISHED = 1;
 
