@@ -14,6 +14,7 @@ function JStage(el, width, height) {
     this.currentTimestamp,
     this.duration = 0,
     this.status = JStage.IS_IDLE,
+    this.currentSetupOffset,
     this.resources = [];
     this.objs = [];
 }
@@ -60,7 +61,7 @@ JStage.IS_FINISHED = 1;
 JStage.prototype = {
     /**
      * 添加资源
-     * @param {string} resource 
+     * @param {string} resource
      */
     addResource: function(resource) {
         if (this.resources.indexOf(resource) < 0) {
@@ -80,11 +81,11 @@ JStage.prototype = {
             image.onload = function() {
                 console.log('image load')
                 loadedLen++;
-    
+
                 if (callbacks.onProgress && typeof callbacks.onProgress === 'function') {
                     callbacks.onProgress.call(this, len, loadedLen);
                 }
-    
+
                 if (loadedLen === len && callbacks.onComplete && typeof callbacks.onComplete === 'function') {
                     callbacks.onComplete.call(null);
                 }
@@ -101,10 +102,10 @@ JStage.prototype = {
     /**
      * 在舞台上创建一个物体
      * @param {mixed} el 元素对象
-     * @param {int} width 
-     * @param {int} height 
-     * @param {int} left 
-     * @param {int} right 
+     * @param {int} width
+     * @param {int} height
+     * @param {int} left
+     * @param {int} right
      * @returns {JStage.Obj}
      */
     createObj: function(el, width, height, left, right) {
@@ -120,7 +121,7 @@ JStage.prototype = {
         var self = this;
 
         this.setScale(this.el.offsetWidth, this.el.offsetHeight);
-        
+
         this.el.style.width = this.width * this.scale + 'px';
         this.el.style.height = this.height * this.scale + 'px';
 
@@ -134,10 +135,19 @@ JStage.prototype = {
         });
     },
 
+    standby: function(setupOffset) {
+        this.startTimestamp = null;
+        this.currentTimestamp = null;
+
+        this.objs.forEach(function(obj) {
+            obj.standby(setupOffset);
+        }, this);
+    },
+
     /**
      * 重置舞台元素实际尺寸
-     * @param {int|float} width 
-     * @param {int|float} height 
+     * @param {int|float} width
+     * @param {int|float} height
      */
     resizeEl: function(width, height) {
         this.setScale(width, height)
@@ -154,7 +164,7 @@ JStage.prototype = {
     /**
      * 设置舞台的缩放比例
      * @param {int|float} width 舞台元素实际宽度
-     * @param {int|float} height 舞台元素实际宽度 
+     * @param {int|float} height 舞台元素实际宽度
      */
     setScale: function(width, height) {
         var wScale = width / this.width;
@@ -170,12 +180,19 @@ JStage.prototype = {
     },
 
     start: function() {
+        this.startSetup(JStage.Obj.OPEN_SETUP);
+    },
+
+    startSetup: function(setupOffset) {
+        this.currentSetupOffset = setupOffset;
+        this.standby(setupOffset);
+
         if (!!window.requestAnimationFrame) {
             window.requestAnimationFrame(this.update.bind(this));
             return;
         }
 
-        this.objs.forEach(function(forEach) {
+        this.objs.forEach(function(obj) {
             if (!obj.isStatic()) {
                 obj.setProgress(1);
             }
@@ -194,12 +211,11 @@ JStage.prototype = {
         for (var i = 0, l = this.objs.length; i < l; i++) {
             var obj = this.objs[i];
 
-            if (!obj.isStatic()) {
-                if (!obj.isCompleted()) {
-                    finished = false;
-
-                    obj.render();
-                }
+            if (obj.hasSetup(this.currentSetupOffset) &&
+                !(obj.isStatic() || obj.isCompleted())
+            ) {
+                finished = false;
+                obj.update(this.currentSetupOffset);
             }
         }
 
@@ -208,7 +224,7 @@ JStage.prototype = {
             window.requestAnimationFrame(this.update.bind(this));
         }
     },
-    
+
     setTime: function(time) {
         for (var i = 0, l = this.objs.length; i < l; i++) {
             if (!this.objs[i].isStatic()) {

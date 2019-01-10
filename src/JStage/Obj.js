@@ -1,37 +1,278 @@
 JStage.Obj = function(el, width, height, left, top) {
-    this.el,
+    this.el, // dom对象
+    this.state = {},
+    this.intermediateState = {} // 中间状态
+    this.setups = {}, // 动画状态
+    this.propDiff = {},
+    this.executingScripts = {},
+
+    this.transformState = {}, // transform中间状态
+    this.styleState = {}, // style 中间状态
     this.width,
     this.height,
     this.left,
     this.top,
     this.duration = 0;
-    this.transform = {
-        scaleX: 1,
-        scaleY: 1,
-    },
-    this.transformState = {}, // transform中间状态
-    this.transformPrevState = {}, // transform 上一阶段完成状态
-    this.style = {
-        opacity: 1,
-    },
-    this.styleState = {}, // style 中间状态
-    this.stylePrevState = {}, // style 上一阶段完成状态
     this.stage,
-    this.prevObj,
     this.status = JStage.Obj.IS_STATIC,
-    this.scripts = [];
 
     this.setEl(el);
     this.setSize(width, height);
     this.setPosition(left, top);
 }
 
+JStage.Obj.PROP_DEFAULT = {
+    scale   : 1,
+    scaleX  : 1,
+    scaleY  : 1,
+    translateX  : 0,
+    translateY  : 0,
+    rotate  : 0,
+    skew    : 0,
+    skewX   : 0,
+    skewY   : 0
+};
+JStage.Obj.TRANSFORMS = [
+    'translateX',
+    'translateY',
+    'rotate',
+    'skew',
+    'skewX',
+    'skewY',
+    'scale',
+    'scaleX',
+    'scaleY',
+];
+JStage.Obj.INIT_SETUP = 'INIT_SETUP'; // 初始化状态
+JStage.Obj.OPEN_SETUP = 'OPEN_SETUP'; // 开场状态
 JStage.Obj.IS_IDLE = 0;
 JStage.Obj.IS_COMPLETED = 2;
 JStage.Obj.IS_ANIMATING = 3;
 JStage.Obj.IS_STATIC = 4;
 
 JStage.Obj.prototype = {
+    setState: function(prop, value) {
+        this.state[prop] = value;
+        return this;
+    },
+
+    /**
+     *
+     * @param {string} prop
+     */
+    getPropDefaultValue: function(prop) {
+        if (undefined === JStage.Obj.PROP_DEFAULT[prop]) {
+            return 0;
+        } else {
+            return JStage.Obj.PROP_DEFAULT[prop];
+        }
+    },
+
+    createSetup: function(offset) {
+        if (undefined === this.getSetup(offset)) {
+            this.setups[offset] = {
+                scripts: []
+            }
+        }
+    },
+
+    /**
+     * 添加状态脚本
+     * @param {string} offset
+     * @param {array} scripts
+     */
+    addSetup: function(offset, scripts) {
+        this.createSetup(offset);
+
+        if (scripts instanceof Array && scripts.length > 0) {
+            scripts.forEach(function(script) {
+                this.addScript(offset, script)
+            }, this);
+        }
+
+        return this;
+    },
+
+    addOpenSetup: function(scripts) {
+        this.addSetup(JStage.Obj.OPEN_SETUP, scripts);
+        return this;
+    },
+
+    /**
+     * 为状态添加一个脚本
+     * @param {string} offset
+     * @param {object} script
+     */
+    addScript: function(offset, script) {
+        this.createSetup(offset);
+
+        this.status = JStage.Obj.IS_IDLE;
+
+        this.setups[offset].scripts.push(
+            new JStage.Script(script.property, script.value, script.duration, script.delay, script.timingFunction)
+        );
+
+        return this;
+    },
+
+    /**
+     *
+     * @param {string} offset
+     */
+    getSetup: function(offset) {
+        return this.setups[offset];
+    },
+
+    getPropDiffVal: function(prop, from, to) {
+        if (prop.toLowerCase().indexOf('color') > -1) {
+            throw 'unsupported property ' + prop;
+        }
+
+        return to - from;
+    },
+
+    createPropDiff: function(script) {
+        var prop = script.property;
+
+        this.propDiff[script.property] = {
+            prop: script.property,
+            diffVal: this.getPropDiffVal(
+                script.property,
+                (undefined === this.state[prop] ? this.getPropDefaultValue(prop) : this.state[prop]),
+                script.value
+            ),
+            fromVal: this.state[prop]
+        };
+    },
+
+    patchPropDiff: function(propDiff, script) {
+        var prop = script.property;
+
+        propDiff.diffVal = this.getPropDiffVal(
+            script.property,
+            this.intermediateState[prop],
+            script.value
+        );
+        propDiff.fromVal = this.intermediateState[prop];
+    },
+
+    getPropDiff: function(offset) {
+        return this.propDiff[offset];
+    },
+
+    /**
+     *
+     * @param {object} propDIff
+     * @param {float} progress
+     */
+    updateIntermediateState: function(propDiff, progress) {
+        this.intermediateState[propDiff.prop] = progress * propDiff.diffVal + propDiff.fromVal;
+    },
+
+    update: function(setupOffset) {
+        this.render(setupOffset === undefined ? JStage.Obj.OPEN_SETUP : setupOffset);
+    },
+
+    render: function(setupOffset) {
+        if (undefined === this.getSetup(setupOffset)) {
+            return;
+        }
+
+        var startTimestamp = this.getStartTimestamp();
+        var currentTimestamp = this.getCurrentTimestamp();
+        var scripts = this.getSetup(setupOffset).scripts;
+        var complete;
+
+        scripts.forEach(function(script) {
+            if (script.delay > 0) {
+                startTimestamp += script.delay;
+            }
+
+            if (startTimestamp > currentTimestamp) {
+                return;
+            }
+
+            var progress = (currentTimestamp - startTimestamp) / script.duration;
+
+            if (progress > 1) {
+                progress = 1;
+            }
+
+            if (script.isComplete() || script.isSkip()) {
+                return;
+            }
+
+            complete = false;
+            script.executing();
+
+            if (undefined === this.executingScripts[script.property]) {
+                this.executingScripts[script.property] = script;
+                // create prop diff
+                this.createPropDiff(script);
+            }
+
+            if (this.executingScripts[script.property] !== script &&
+                !(script.isSkip() || script.isComplete())
+            ) {
+                if (this.executingScripts[script.property].isExecuting()) {
+                    this.executingScripts[script.property].skip();
+                }
+
+                this.executingScripts[script.property] = script;
+
+                // patch prop diff
+                this.patchPropDiff(this.getPropDiff(script.property), script);
+            }
+
+            this.updateIntermediateState(this.getPropDiff(script.property), progress);
+
+            if (progress === 1) {
+                script.complete();
+            }
+        }, this);
+
+        this.status = complete === false ? JStage.Obj.IS_ANIMATING : JStage.Obj.IS_COMPLETED;
+
+        this.renderState();
+    },
+
+    renderState: function() {
+        console.log(this.intermediateState);
+        for (var prop in this.intermediateState) {
+            if (JStage.Obj.TRANSFORMS.indexOf(prop) > -1) {
+                var transformStyle = '';
+
+                switch (prop) {
+                    case 'translateX':
+                    case 'translateY':
+                        transformStyle += prop + '(' + this.intermediateState[prop] + this.getScale() + 'px) ';
+                        break;
+                    case 'rotate':
+                    case 'skew':
+                    case 'skewX':
+                    case 'skewY':
+                        transformStyle += prop + '(' + this.intermediateState[prop] + 'deg) ';
+                        break;
+                    case 'scale':
+                    case 'scaleX':
+                    case 'scaleY':
+                        transformStyle += prop + '(' + this.intermediateState[prop] + ') ';
+                        break;
+                }
+            } else {
+                if (['left', 'top', 'width', 'height'].indexOf(prop) > -1) {
+                    this.el.style[prop] = this.intermediateState[prop] * this.getScale() + 'px';
+                } else {
+                    this.el.style[prop] = this.intermediateState[prop];
+                }
+            }
+        }
+
+        if (undefined !== transformStyle) {
+            this.el.style.transform = transformStyle;
+        }
+    },
+
     /**
      * 设置物体尺寸
      * @param {int} width
@@ -42,8 +283,8 @@ JStage.Obj.prototype = {
         this.width = width;
         this.height = height;
 
-        this.setStyle('width', width)
-            .setStyle('height', height);
+        this.setState('width', width)
+            .setState('height', height);
 
         return this;
     },
@@ -58,56 +299,9 @@ JStage.Obj.prototype = {
         this.left = left;
         this.top = top;
 
-        this.setStyle('left', left)
-            .setStyle('top', top);
+        this.setState('left', left)
+            .setState('top', top);
 
-        return this;
-    },
-
-    /**
-     * 设置物体变化
-     * @param {string} func
-     * @param {int} value
-     */
-    setTransform: function(func, value) {
-        this.transform[func] = value;
-        return this;
-    },
-
-    /**
-     * 设置舞台元素的样式
-     * @param {string} property 
-     * @param {mixed} value 
-     * @param {this}
-     */
-    setStyle: function(property, value) {
-        this.style[property] = value;
-        return this;
-    },
-
-    /**
-     * 设置物体的动画脚本
-     * @param {array} scripts
-     * @returns {this}
-     */
-    setScripts: function(scripts) {
-        this.scripts = scripts;
-    },
-
-    /**
-     * 添加单个脚本
-     * @param {string} property
-     * @param {mixed} value
-     * @param {mixed} duration
-     * @param {string} timingFunction
-     * @param {mixed} delay
-     */
-    addScript: function(property, value, duration, timingFunction, delay) {
-        if (this.isStatic()) {
-            this.status = JStage.Obj.IS_IDLE;
-        }
-
-        this.scripts.push(new JStage.Script(property, value, duration, timingFunction, delay));
         return this;
     },
 
@@ -139,110 +333,47 @@ JStage.Obj.prototype = {
      * 将舞台元素准备好
      */
     getReady: function() {
+        var openSetup = this.getSetup(JStage.Obj.OPEN_SETUP);
+
+        if (undefined !== openSetup) {
+            this.resetSetup(openSetup);
+        }
+
+        // 重置中间状态
+        this.intermediateState = {};
+
         // 初始化元素样式状态，包括当前状态以及阶段状态
-        for (var prop in this.style) {
-            this.stylePrevState[prop] = this.style[prop];
-            this.styleState[prop] = this.style[prop];
+        for (var prop in this.state) {
+            this.intermediateState[prop] = this.state[prop];
         }
 
-        // 初始化元素变换状态，包括当前状态以及阶段状态
-        for (var func in this.transform) {
-            this.transformPrevState[func] = this.transform[func];
-            this.transformState[func] = this.transform[func];
+        this.duration = this.getDuration(openSetup);
+        this.renderState();
+    },
+
+    getStateReady: function(setupOffset) {
+        // 重置中间状态
+        this.intermediateState = {};
+
+        var setup = this.getSetup(setupOffset);
+        var finState = this.getFinState(state);
+
+        for (var prop in setup.scripts) {
+            if (undefined === finState[prop]) {
+                finState[prop] = setup.scripts[prop];
+            }
         }
 
-        this.duration = this.getDuration();
-        this.renderStyle(this.styleState);
-        this.renderTransform(this.transformState);
-    },
+        for (var prop in finState) {
+            this.intermediateState[prop] = finState[prop];
+        }
 
-    /**
-     * 设置元素层尺寸
-     * @deprecated
-     * @returns {this}
-     */
-    setElSize: function() {
-        this.setElWidth(this.width)
-            .setElHeight(this.height);
-        return this;
-    },
-
-    /**
-     * 设置元素层宽度
-     * @deprecated
-     * @param {int} width
-     * @returns {this}
-     */
-    setElWidth: function(width) {
-        this.el.style.width = width * this.getScale() + 'px';
-        return this;
-    },
-
-    /**
-     * 设置元素层高度
-     * @deprecated
-     * @param {int} height
-     * @returns {this}
-     */
-    setElHeight: function(height) {
-        this.el.style.height = height * this.getScale() + 'px';
-        return this;
-    },
-
-    /**
-     * @deprecated
-     * @returns {this}
-     */
-    setElPosition: function() {
-        this.setElLeft(this.left)
-            .setElTop(this.top);
-        return this;
-    },
-
-    /**
-     * @deprecated
-     * @param {int|float} left
-     * @returns {this} 
-     */
-    setElLeft: function(left) {
-        this.el.style.left = left * this.getScale() + 'px';
-        return this;
-    },
-
-    /**
-     * @deprecated
-     * @param {int|float} top
-     * @returns {this} 
-     */
-    setElTop: function(top) {
-        this.el.style.top = top * this.getScale() + 'px';
-        return this;
-    },
-
-    /**
-     * @deprecated
-     * @returns {this}
-     */
-    setElStyle: function() {
-        this.renderStyle(this.style);
-        return this;
-    },
-
-    /**
-     * @deprecated
-     * @returns {this}
-     */
-    setElTransform: function() {
-        this.renderTransform(this.transform);
-        return this;
+        this.duration = this.getDuration(setup);
+        this.renderState();
     },
 
     setEl: function(el) {
         this.el = JStage.getEl(el);
-
-        if (['absolute'].indexOf(this.el.style.position) < 0) {
-            console.warn('Stage object position style should be \'absolute\'');
-        }
     },
 
     /**
@@ -283,8 +414,7 @@ JStage.Obj.prototype = {
      */
     recal: function() {
         if (!this.isAnimating()) {
-            this.renderStyle(this.styleState);
-            this.renderTransform(this.transformState);
+            this.renderState();
         }
     },
 
@@ -304,44 +434,6 @@ JStage.Obj.prototype = {
         this.stage = stage;
     },
 
-    render: function() {
-        var self = this;
-        var completed = true;
-
-        this.scripts.forEach(function(script) {
-            // 如果动画已完成则不继续
-            if (!script.isCompleted) {
-                completed = false;
-                var startTimestamp = self.getStartTimestamp();
-
-                // 如果配有达到延迟时间则不继续
-                if (script.delay > 0) {
-                    startTimestamp += script.delay;
-
-                    if (startTimestamp >= self.getCurrentTimestamp()) {
-                        return;
-                    }
-                }
-
-                // 需要考虑时间精度跳跃问题
-                var progress = (self.getCurrentTimestamp() - startTimestamp) / script.duration;
-
-                // 如果已超过动画执行时间，标记脚本结束并执行最后一次progress = 1
-                if (progress > 1) {
-                    script.completed();
-                    progress = 1;
-                }
-                
-                self.updateState(script, progress);
-            }
-        });
-
-        this.renderStyle(this.styleState);
-        this.renderTransform(this.transformState);
-
-        this.status = !!completed ? JStage.Obj.IS_COMPLETED : JStage.Obj.IS_ANIMATING;
-    },
-
     /**
      * 重置舞台元素状态
      */
@@ -351,53 +443,26 @@ JStage.Obj.prototype = {
 
     /**
      * 设置舞台播放到指定毫秒数
-     * @param {float} time 舞台播放到指定毫秒数
+     * @param {int} time 舞台播放到指定毫秒数
      */
     setTime: function(time) {
-        // 重置元素
-        this.reset();
-
-        var self = this;
-        
-        this.scripts.forEach(function(script) {
-            var startTimestamp = 0;
-
-            // 如果配有达到延迟时间则不继续
-            if (script.delay > 0) {
-                startTimestamp = script.delay;
-
-                if (startTimestamp >= time) {
-                    return;
-                }
-            }
-
-            // 需要考虑时间精度跳跃问题
-            var progress = (time - startTimestamp) / script.duration;
-
-            // 如果已超过动画执行时间，标记脚本结束并执行最后一次progress = 1
-            if (progress > 1) {
-                progress = 1;
-            }
-
-            self.updateState(script, progress);
-        });
-
-        this.renderStyle(this.styleState);
-        this.renderTransform(this.transformState);
+        //
     },
 
     /**
      * 获得动画时间，这个时间包含延迟时间
+     * @param {object} setup
      * @returns {int}
      */
-    getDuration: function() {
+    getDuration: function(setup) {
         var duration = 0;
-        
-        this.scripts.forEach(function(script) {
-            var scriptDuration = script.delay + script.duration;
-            
-            if (scriptDuration > duration) {
-                duration = scriptDuration;
+        var scriptDuration = 0;
+
+        setup.scripts.forEach(function(script) {
+            scriptDuration = script.duration + script.delay;
+
+            if (duration < scriptDuration) {
+                durtaion = scriptDuration;
             }
         });
 
@@ -405,65 +470,48 @@ JStage.Obj.prototype = {
     },
 
     /**
-     * 更新舞台元素的状态
-     * @param {JStage.Script} script 
-     * @param {float} progress 
+     * 获得设置的最终状态，需要处理同属性延迟执行的情况，比如两个left移动先后执行
+     * @param {object} setup
      */
-    updateState: function(script, progress) {
-        if (script.isTransform()) {
-            this.transformState[script.property] = (
-                !this.transformPrevState[script.property] ? 0 : this.transformPrevState[script.property]
-            ) - 0 + script.getProgressValue(progress);
+    getFinState: function(setup) {
+        var finState = {};
+        var propDelay = {};
 
-            // 保存阶段性属性
-            if (progress === 1) {
-                this.transformPrevState[script.property] = this.transformState[script.property];
+        setup.scripts.forEach(function(script) {
+            if (undefined === propDelay[script.property]) {
+                propDelay[script.property] = script.delay;
+                finState[script.property] = script.property;
+            } else if (script.delay > propDelay[script.property]) {
+                propDelay[script.property] = script.delay;
+                finState[script.property] = script.property;
             }
-        } else {
-            this.styleState[script.property] = (
-                !this.stylePrevState[script.property] ? 0 : this.stylePrevState[script.property]
-            ) - 0 + script.getProgressValue(progress);
+        });
 
-            // 保存阶段性属性
-            if (progress === 1) {
-                this.stylePrevState[script.property] = this.styleState[script.property];
-            }
-        }
+        return finState;
     },
 
-    renderStyle: function(style) {
-        for (var prop in style) {
-            if (['left', 'top', 'width', 'height'].indexOf(prop) > -1) {
-                this.el.style[prop] = style[prop] * this.getScale() + 'px';
-            } else {
-                this.el.style[prop] = style[prop];
-            }
-        }
+    /**
+     * 重置设置状态
+     * @param {object} setup
+     */
+    resetSetup: function(setup) {
+        setup.scripts.forEach(function(script) {
+            script.reset();
+        });
     },
 
-    renderTransform: function(transform) {
-        var transformStyle = '';
+    standby: function(offset) {
+        var setup = this.getSetup(offset);
 
-        for (var i in transform) {
-            switch (i) {
-                case 'translateX':
-                case 'translateY':
-                    transformStyle += i + '(' + transform[i] + this.getScale() + 'px) ';
-                    break;
-                case 'rotate':
-                case 'skewX':
-                case 'skewY':
-                    transformStyle += i + '(' + transform[i] + 'deg) ';
-                    break;
-                case 'scaleX':
-                case 'scaleY':
-                    transformStyle += i + '(' + transform[i] + ') ';
-                    break;
-            }
+        if (undefined === setup) {
+            return;
         }
+console.log(this);
+        this.status = JStage.Obj.IS_IDLE;
+        this.resetSetup(setup);
+    },
 
-        if (!!transformStyle) {
-            this.el.style.transform = transformStyle;
-        }
+    hasSetup: function(offset) {
+        return undefined !== this.setups[offset];
     }
 };

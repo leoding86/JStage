@@ -6,28 +6,51 @@
  * @param {string} timingFunction
  * @param {int} delay 毫秒单位
  */
-JStage.Script = function(property, value, duration, timingFunction, delay) {
+JStage.Script = function(property, value, duration, delay, timingFunction) {
     this.transforms = ['scaleX', 'scaleY', 'skewX', 'skewY', 'rotate', 'translateX', 'translateY'];
 
+    this.id = JStage.Script.i++;
     this.property = property;
     this.value = value;
     this.duration = this.normalizeTime(duration);
     this.timingFunction = !!timingFunction ? timingFunction : 'linear';
     this.delay = this.normalizeTime(delay);
-    this.isCompleted = false;
+    this.status = JStage.Script.IDLE;
 };
 
+JStage.Script.i = 0;
+JStage.Script.IDLE = 0;
+JStage.Script.EXECUTING = 1;
+JStage.Script.SKIP = 2;
+JStage.Script.COMPLETE = 3;
+
 JStage.Script.prototype = {
-    completed: function() {
-        this.isCompleted = true;
+    reset: function() {
+        this.status = JStage.Script.IDLE;
     },
 
-    isTransform: function() {
-        return this.transforms.indexOf(this.property) > -1;
+    executing: function() {
+        this.status = JStage.Script.EXECUTING;
     },
 
-    getTransitionStyle: function() {
-        return this.property + ' ' + this.duration + 'ms ' + this.timingFunction + ' ' + this.delay + 'ms';
+    skip: function() {
+        this.status = JStage.Script.SKIP;
+    },
+
+    complete: function() {
+        this.status = JStage.Script.COMPLETE;
+    },
+
+    isExecuting: function() {
+        return this.status === JStage.Script.EXECUTING;
+    },
+
+    isSkip: function() {
+        return this.status === JStage.Script.SKIP;
+    },
+
+    isComplete: function() {
+        return this.status === JStage.Script.COMPLETE;
     },
 
     normalizeTime: function(time) {
