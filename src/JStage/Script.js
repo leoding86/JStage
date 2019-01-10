@@ -57,13 +57,15 @@ JStage.Script.prototype = {
         if (!time) {
             return 0;
         }
-
-        if (time.indexOf('ms') > 0) {
+    
+        if (typeof time === 'number') {
+            return time;
+        } else if (time.indexOf('ms') > 0) {
             return time.slice(0, -2) - 0;
         } else if (time.indexOf('s') > 0) {
             return time.slice(0, -1) * 1000;
         } else if (isNaN(time)) {
-            throw 'Invalid time';
+            return time;
         }
     },
 

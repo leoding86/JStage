@@ -38,12 +38,14 @@ JStage.normalizeTime = function(time) {
         return 0;
     }
 
-    if (time.indexOf('ms') > 0) {
+    if (typeof time === 'number') {
+        return time;
+    } else if (time.indexOf('ms') > 0) {
         return time.slice(0, -2) - 0;
     } else if (time.indexOf('s') > 0) {
         return time.slice(0, -1) * 1000;
     } else if (isNaN(time)) {
-        throw 'Invalid time';
+        return time;
     }
 };
 
@@ -57,6 +59,7 @@ JStage.getStyle = function(el, prop) {
 
 JStage.IS_IDLE = 0;
 JStage.IS_FINISHED = 1;
+JStage.IS_ANIMATING = 2;
 
 JStage.prototype = {
     /**
@@ -72,7 +75,6 @@ JStage.prototype = {
     },
 
     loadResources: function(callbacks) {
-        var self = this;
         var len = this.resources.length;
         var loadedLen = 0;
 
@@ -112,6 +114,10 @@ JStage.prototype = {
         var obj = new JStage.Obj(el, width, height, left, right);
         this.appendObj(obj);
         return obj;
+    },
+
+    isAnimating: function() {
+        return this.status === JStage.IS_ANIMATING;
     },
 
     /**
@@ -188,7 +194,10 @@ JStage.prototype = {
         this.standby(setupOffset);
 
         if (!!window.requestAnimationFrame) {
-            window.requestAnimationFrame(this.update.bind(this));
+            if (!this.isAnimating()) {
+                this.status = JStage.IS_ANIMATING;
+                window.requestAnimationFrame(this.update.bind(this));
+            }
             return;
         }
 
@@ -208,20 +217,20 @@ JStage.prototype = {
 
         var finished;
 
-        for (var i = 0, l = this.objs.length; i < l; i++) {
-            var obj = this.objs[i];
-
+        this.objs.forEach(function(obj) {
             if (obj.hasSetup(this.currentSetupOffset) &&
                 !(obj.isStatic() || obj.isCompleted())
             ) {
                 finished = false;
                 obj.update(this.currentSetupOffset);
             }
-        }
+        }, this);
 
         // 动画没有结束则继续执行
         if (finished === false) {
             window.requestAnimationFrame(this.update.bind(this));
+        } else {
+            this.status = JStage.IS_FINISHED;
         }
     },
 

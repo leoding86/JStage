@@ -123,6 +123,10 @@ JStage.Obj.prototype = {
         return this.setups[offset];
     },
 
+    getPropValue: function(state, prop) {
+        return (undefined === state[prop]) ? this.getPropDefaultValue(prop) : state[prop];
+    },
+
     getPropDiffVal: function(prop, from, to) {
         if (prop.toLowerCase().indexOf('color') > -1) {
             throw 'unsupported property ' + prop;
@@ -135,13 +139,13 @@ JStage.Obj.prototype = {
         var prop = script.property;
 
         this.propDiff[script.property] = {
-            prop: script.property,
+            prop: prop,
             diffVal: this.getPropDiffVal(
                 script.property,
-                (undefined === this.state[prop] ? this.getPropDefaultValue(prop) : this.state[prop]),
+                this.getPropValue(this.state, prop),
                 script.value
             ),
-            fromVal: this.state[prop]
+            fromVal: this.getPropValue(this.state, prop)
         };
     },
 
@@ -150,10 +154,10 @@ JStage.Obj.prototype = {
 
         propDiff.diffVal = this.getPropDiffVal(
             script.property,
-            this.intermediateState[prop],
+            this.getPropValue(this.intermediateState, prop),
             script.value
         );
-        propDiff.fromVal = this.intermediateState[prop];
+        propDiff.fromVal = this.getPropValue(this.intermediateState, prop);
     },
 
     getPropDiff: function(offset) {
@@ -178,17 +182,28 @@ JStage.Obj.prototype = {
             return;
         }
 
-        var startTimestamp = this.getStartTimestamp();
+        var startTimestamp;
         var currentTimestamp = this.getCurrentTimestamp();
         var scripts = this.getSetup(setupOffset).scripts;
         var complete;
 
         scripts.forEach(function(script) {
+            startTimestamp = this.getStartTimestamp();
+
+            console.log('i', script);
+            if (script.isComplete() || script.isSkip()) {
+                console.log('cs', script);
+                return;
+            }
+
+            complete = false;
+
             if (script.delay > 0) {
                 startTimestamp += script.delay;
             }
 
             if (startTimestamp > currentTimestamp) {
+                console.log('ns', script);
                 return;
             }
 
@@ -198,11 +213,6 @@ JStage.Obj.prototype = {
                 progress = 1;
             }
 
-            if (script.isComplete() || script.isSkip()) {
-                return;
-            }
-
-            complete = false;
             script.executing();
 
             if (undefined === this.executingScripts[script.property]) {
@@ -219,7 +229,6 @@ JStage.Obj.prototype = {
                 }
 
                 this.executingScripts[script.property] = script;
-
                 // patch prop diff
                 this.patchPropDiff(this.getPropDiff(script.property), script);
             }
@@ -237,7 +246,6 @@ JStage.Obj.prototype = {
     },
 
     renderState: function() {
-        console.log(this.intermediateState);
         for (var prop in this.intermediateState) {
             if (JStage.Obj.TRANSFORMS.indexOf(prop) > -1) {
                 var transformStyle = '';
@@ -337,6 +345,7 @@ JStage.Obj.prototype = {
 
         if (undefined !== openSetup) {
             this.resetSetup(openSetup);
+            this.duration = this.getDuration(openSetup);
         }
 
         // 重置中间状态
@@ -347,7 +356,6 @@ JStage.Obj.prototype = {
             this.intermediateState[prop] = this.state[prop];
         }
 
-        this.duration = this.getDuration(openSetup);
         this.renderState();
     },
 
