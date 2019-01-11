@@ -14,8 +14,9 @@ function JStage(el, width, height) {
     this.currentTimestamp,
     this.duration = 0,
     this.status = JStage.IS_IDLE,
-    this.currentSetupOffset,
-    this.resources = [];
+    this.currentSetupOffsets = [],
+    this.loops = [],
+    this.resources = [],
     this.objs = [];
 }
 
@@ -81,7 +82,6 @@ JStage.prototype = {
         this.resources.forEach(function(resource) {
             var image = new Image;
             image.onload = function() {
-                console.log('image load')
                 loadedLen++;
 
                 if (callbacks.onProgress && typeof callbacks.onProgress === 'function') {
@@ -120,6 +120,24 @@ JStage.prototype = {
         return this.status === JStage.IS_ANIMATING;
     },
 
+    inSetup: function(setupOffset) {
+        return this.currentSetupOffsets.indexOf(setupOffset) > -1;
+    },
+
+    addCurrentSetupOffset: function(setupOffset) {
+        if (this.currentSetupOffsets.indexOf(setupOffset) < 0) {
+            this.currentSetupOffsets.push(setupOffset);
+        }
+    },
+
+    removeFromCurrentSetups: function(setupOffset) {
+        var index = this.currentSetupOffsets.indexOf(setupOffset);
+
+        if (index > -1) {
+            this.currentSetupOffsets.splice(index, 1);
+        }
+    },
+
     /**
      * 初始化舞台
      */
@@ -144,6 +162,10 @@ JStage.prototype = {
     standby: function(setupOffset) {
         this.startTimestamp = null;
         this.currentTimestamp = null;
+
+        if (undefined === setupOffset) {
+            return;
+        }
 
         this.objs.forEach(function(obj) {
             obj.standby(setupOffset);
@@ -190,7 +212,7 @@ JStage.prototype = {
     },
 
     startSetup: function(setupOffset) {
-        this.currentSetupOffset = setupOffset;
+        this.addCurrentSetupOffset(setupOffset);
         this.standby(setupOffset);
 
         if (!!window.requestAnimationFrame) {
@@ -208,6 +230,19 @@ JStage.prototype = {
         });
     },
 
+    startLoop: function(offset, setupOffsets) {
+        if (!this.loops[offset]) {
+            this.loops[offset] = {
+                currentIndex: 0,
+                setupOffsets: []
+            };
+
+            setupOffsets.forEach(function (setupOffset) {
+                this.loops[offset].setupOffsets.push(setupOffset);
+            });
+        }
+    },
+
     update: function(timestamp) {
         if (!this.startTimestamp) {
             this.startTimestamp = timestamp;
@@ -215,36 +250,64 @@ JStage.prototype = {
 
         this.currentTimestamp = timestamp;
 
-        var finished;
+        this.updateSetup(timestamp);
+        this.updateLoop(timestamp);
 
-        this.objs.forEach(function(obj) {
-            if (obj.hasSetup(this.currentSetupOffset) &&
-                !(obj.isStatic() || obj.isCompleted())
-            ) {
-                finished = false;
-                obj.update(this.currentSetupOffset);
+        window.requestAnimationFrame(this.update.bind(this));
+    },
+
+    updateSetup: function() {
+        this.currentSetupOffsets.forEach(function(setupOffset) {
+            var finished;
+
+            this.objs.forEach(function(obj) {
+
+                // console.log(setupOffset, obj, obj.hasSetup(setupOffset), obj.isStatic(), obj.isCompleted());
+
+                if (obj.hasSetup(setupOffset) &&
+                    !(obj.isStatic() || obj.isCompleted())
+                ) {
+                    finished = false;
+                    obj.update(setupOffset);
+                }
+            }, this);
+
+            if (finished === undefined) {
+                this.removeFromCurrentSetups(setupOffset);
             }
         }, this);
+    },
 
-        // 动画没有结束则继续执行
-        if (finished === false) {
-            window.requestAnimationFrame(this.update.bind(this));
-        } else {
-            this.status = JStage.IS_FINISHED;
-        }
+    updateLoop: function() {
+        // this.loops.forEach(function(loop) {
+        //     var finished;
+        //     var setupOffset = loop.setupOffsets[loop.currentIndex];
+
+        //     this.objs.forEach(function(obj) {
+        //         if (obj.hasSetup(setupOffset) &&
+        //             !(obj.isStatic() || obj.isCompleted())
+        //         ) {
+        //             finished = false;
+        //             obj.update(setupOffset)
+        //         }
+        //     }, this);
+
+        //     if (finished !== false) {
+        //         if ((loop.currentIndex + 1) > loop.setupOffsets.length) {
+        //             loop.currentIndex = 0;
+        //         } else {
+        //             loop.currentIndex++;
+        //         }
+        //     }
+        // });
     },
 
     setTime: function(time) {
-        for (var i = 0, l = this.objs.length; i < l; i++) {
-            if (!this.objs[i].isStatic()) {
-                this.objs[i].setTime(time);
-            }
-        }
+        //
     },
 
     setProgress: function(progress) {
-        var time = this.duration * progress;
-        this.setTime(time);
+        //
     },
 
     /**

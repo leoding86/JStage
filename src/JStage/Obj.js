@@ -3,11 +3,11 @@ JStage.Obj = function(el, width, height, left, top) {
     this.state = {},
     this.intermediateState = {} // 中间状态
     this.setups = {}, // 动画状态
+    this.loops = {},
     this.propDiff = {},
     this.executingScripts = {},
+    this.currentSetup,
 
-    this.transformState = {}, // transform中间状态
-    this.styleState = {}, // style 中间状态
     this.width,
     this.height,
     this.left,
@@ -50,6 +50,14 @@ JStage.Obj.IS_COMPLETED = 2;
 JStage.Obj.IS_ANIMATING = 3;
 JStage.Obj.IS_STATIC = 4;
 
+JStage.Obj.addBatchSetups = function(objs, setups) {
+    objs.forEach(function(obj) {
+        for (var offset in setups) {
+            obj.addSetup(offset, setups[offset]);
+        }
+    });
+}
+
 JStage.Obj.prototype = {
     setState: function(prop, value) {
         this.state[prop] = value;
@@ -71,7 +79,11 @@ JStage.Obj.prototype = {
     createSetup: function(offset) {
         if (undefined === this.getSetup(offset)) {
             this.setups[offset] = {
-                scripts: []
+                key: offset,
+                scripts: [],
+                setups: [],
+                index: 0,
+                startTimestamp: null
             }
         }
     },
@@ -91,6 +103,28 @@ JStage.Obj.prototype = {
         }
 
         return this;
+    },
+
+    /**
+     *
+     * @param {object} setups
+     */
+    addSetups: function(setups) {
+        for (var offset in setups) {
+            this.addSetup(offset, setups[offset]);
+        }
+    },
+
+    addLoopSetup: function(offset, setupOffsets) {
+        this.createSetup(offset);
+
+        setupOffsets.forEach(function(setupOffset) {
+            var setup = this.getSetup(setupOffset);
+
+            if (setup) {
+                this.getSetup(offset).setups.push(setup);
+            }
+        }, this);
     },
 
     addOpenSetup: function(scripts) {
@@ -137,13 +171,23 @@ JStage.Obj.prototype = {
 
     createPropDiff: function(script) {
         var prop = script.property;
+        var toValue;
+
+        if (typeof script.value === 'string' &&
+            (script.value.indexOf('+') === 0 ||
+            script.value.indexOf('-') === 0)
+        ) {
+            toValue = this.getPropValue(this.state, prop) + parseInt(script.value)
+        } else {
+            toValue = script.value;
+        }
 
         this.propDiff[script.property] = {
             prop: prop,
             diffVal: this.getPropDiffVal(
                 script.property,
                 this.getPropValue(this.state, prop),
-                script.value
+                toValue
             ),
             fromVal: this.getPropValue(this.state, prop)
         };
@@ -151,11 +195,21 @@ JStage.Obj.prototype = {
 
     patchPropDiff: function(propDiff, script) {
         var prop = script.property;
+        var toValue;
+
+        if (typeof script.value === 'string' &&
+            (script.value.indexOf('+') === 0 ||
+            script.value.indexOf('-') === 0)
+        ) {
+            toValue = this.getPropValue(this.intermediateState, prop) + parseInt(script.value);
+        } else {
+            toValue = script.value;
+        }
 
         propDiff.diffVal = this.getPropDiffVal(
             script.property,
             this.getPropValue(this.intermediateState, prop),
-            script.value
+            toValue
         );
         propDiff.fromVal = this.getPropValue(this.intermediateState, prop);
     },
@@ -178,69 +232,155 @@ JStage.Obj.prototype = {
     },
 
     render: function(setupOffset) {
-        if (undefined === this.getSetup(setupOffset)) {
+        var setup = this.currentSetup;
+
+        if (!setup) {
             return;
         }
 
-        var startTimestamp;
-        var currentTimestamp = this.getCurrentTimestamp();
-        var scripts = this.getSetup(setupOffset).scripts;
-        var complete;
+        if (setup.setups.length > 0) {
+            var loopSetup = setup.setups[setup.index];
+            // loop
 
-        scripts.forEach(function(script) {
-            startTimestamp = this.getStartTimestamp();
-
-            console.log('i', script);
-            if (script.isComplete() || script.isSkip()) {
-                console.log('cs', script);
-                return;
+            if (!loopSetup.startTimestamp) {
+                loopSetup.startTimestamp = !!performance ? performance.now() : Date.now();
             }
 
-            complete = false;
+            var startTimestamp;
+            var currentTimestamp = this.getCurrentTimestamp();
+            var scripts = loopSetup.scripts;
+            var complete;
 
-            if (script.delay > 0) {
-                startTimestamp += script.delay;
-            }
-
-            if (startTimestamp > currentTimestamp) {
-                console.log('ns', script);
-                return;
-            }
-
-            var progress = (currentTimestamp - startTimestamp) / script.duration;
-
-            if (progress > 1) {
-                progress = 1;
-            }
-
-            script.executing();
-
-            if (undefined === this.executingScripts[script.property]) {
-                this.executingScripts[script.property] = script;
-                // create prop diff
-                this.createPropDiff(script);
-            }
-
-            if (this.executingScripts[script.property] !== script &&
-                !(script.isSkip() || script.isComplete())
-            ) {
-                if (this.executingScripts[script.property].isExecuting()) {
-                    this.executingScripts[script.property].skip();
+            scripts.forEach(function(script) {
+                if (script.isComplete() || script.isSkip()) {
+                    return;
                 }
 
-                this.executingScripts[script.property] = script;
-                // patch prop diff
-                this.patchPropDiff(this.getPropDiff(script.property), script);
+                startTimestamp = loopSetup.startTimestamp;
+
+                complete = false;
+
+                if (script.delay > 0) {
+                    startTimestamp += script.delay;
+                }
+
+                if (startTimestamp > currentTimestamp) {
+                    return;
+                }
+
+                var progress = (currentTimestamp - startTimestamp) / script.duration;
+
+                if (progress > 1) {
+                    progress = 1;
+                }
+
+                script.executing();
+
+                if (undefined === this.executingScripts[script.property]) {
+                    this.executingScripts[script.property] = script;
+                    // create prop diff
+                    this.createPropDiff(script);
+                }
+
+                if (this.executingScripts[script.property] !== script &&
+                    !(script.isSkip() || script.isComplete())
+                ) {
+                    if (this.executingScripts[script.property].isExecuting()) {
+                        this.executingScripts[script.property].skip();
+                    }
+
+                    this.executingScripts[script.property] = script;
+                    // patch prop diff
+                    this.patchPropDiff(this.getPropDiff(script.property), script);
+                }
+
+                this.updateIntermediateState(this.getPropDiff(script.property), progress);
+
+                if (progress === 1) {
+                    script.complete();
+                }
+            }, this);
+
+            if (complete !== false) {
+                loopSetup.startTimestamp = null;
+
+                if (setup.index >= (setup.setups.length - 1)) {
+                    setup.index = 0;
+                } else {
+                    setup.index++;
+                }
+
+                this.standby(setup.setups[setup.index]);
+            }
+        } else {
+            if (!setup.startTimestamp) {
+                setup.startTimestamp = this.getStartTimestamp();
             }
 
-            this.updateIntermediateState(this.getPropDiff(script.property), progress);
+            var startTimestamp;
+            var currentTimestamp = this.getCurrentTimestamp();
+            var scripts = setup.scripts;
+            var complete;
 
-            if (progress === 1) {
-                script.complete();
+            scripts.forEach(function(script) {
+                if (script.isComplete() || script.isSkip()) {
+                    return;
+                }
+
+                startTimestamp = setup.startTimestamp;
+
+                complete = false;
+
+                if (script.delay > 0) {
+                    startTimestamp += script.delay;
+                }
+
+                if (startTimestamp > currentTimestamp) {
+                    return;
+                }
+
+                var progress = (currentTimestamp - startTimestamp) / script.duration;
+
+                if (progress > 1) {
+                    progress = 1;
+                }
+
+                script.executing();
+
+                if (undefined === this.executingScripts[script.property]) {
+                    this.executingScripts[script.property] = script;
+                    // create prop diff
+                    this.createPropDiff(script);
+                }
+
+                if (this.executingScripts[script.property] !== script &&
+                    !(script.isSkip() || script.isComplete())
+                ) {
+                    if (this.executingScripts[script.property].isExecuting()) {
+                        this.executingScripts[script.property].skip();
+                    }
+
+                    this.executingScripts[script.property] = script;
+                    // patch prop diff
+                    this.patchPropDiff(this.getPropDiff(script.property), script);
+                }
+
+                this.updateIntermediateState(this.getPropDiff(script.property), progress);
+
+                if (progress === 1) {
+                    script.complete();
+                }
+            }, this);
+
+            if (complete === false) {
+                this.status = JStage.Obj.IS_ANIMATING;
+            } else {
+                this.status = JStage.Obj.IS_COMPLETED;
+                setup.startTimestamp = null;
             }
-        }, this);
 
-        this.status = complete === false ? JStage.Obj.IS_ANIMATING : JStage.Obj.IS_COMPLETED;
+            console.log(setup.key, this.status)
+        }
 
         this.renderState();
     },
@@ -359,12 +499,12 @@ JStage.Obj.prototype = {
         this.renderState();
     },
 
-    getStateReady: function(setupOffset) {
+    getSetupReady: function(setupOffset) {
         // 重置中间状态
         this.intermediateState = {};
 
         var setup = this.getSetup(setupOffset);
-        var finState = this.getFinState(state);
+        var finState = this.getFinState(setup);
 
         for (var prop in setup.scripts) {
             if (undefined === finState[prop]) {
@@ -509,12 +649,14 @@ JStage.Obj.prototype = {
     },
 
     standby: function(offset) {
-        var setup = this.getSetup(offset);
+        var setup = typeof offset === 'object' ? offset : this.getSetup(offset);
 
         if (undefined === setup) {
             return;
         }
-console.log(this);
+
+        this.currentSetup = setup;
+        setup.startTimestamp = null;
         this.status = JStage.Obj.IS_IDLE;
         this.resetSetup(setup);
     },
