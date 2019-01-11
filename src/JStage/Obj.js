@@ -96,11 +96,15 @@ JStage.Obj.prototype = {
     addSetup: function(offset, scripts) {
         this.createSetup(offset);
 
+        var setup = this.getSetup(offset);
+
         if (scripts instanceof Array && scripts.length > 0) {
             scripts.forEach(function(script) {
                 this.addScript(offset, script)
             }, this);
         }
+
+        setup.duration = this.getDuration(setup);
 
         return this;
     },
@@ -231,7 +235,17 @@ JStage.Obj.prototype = {
         this.render(setupOffset === undefined ? JStage.Obj.OPEN_SETUP : setupOffset);
     },
 
-    render: function(setupOffset) {
+    stop: function(setupOffset) {
+        this.complete();
+
+        var setup = this.getSetup(setupOffset);
+
+        if (setup.setups.length > 0) {
+            setup.index = 0;
+        }
+    },
+
+    render: function() {
         var setup = this.currentSetup;
 
         if (!setup) {
@@ -310,7 +324,7 @@ JStage.Obj.prototype = {
                     setup.index++;
                 }
 
-                this.standby(setup.setups[setup.index]);
+                this.standbyLoop(setup);
             }
         } else {
             if (!setup.startTimestamp) {
@@ -378,18 +392,16 @@ JStage.Obj.prototype = {
                 this.status = JStage.Obj.IS_COMPLETED;
                 setup.startTimestamp = null;
             }
-
-            console.log(setup.key, this.status)
         }
 
         this.renderState();
     },
 
     renderState: function() {
+        var transformStyle = '';
+
         for (var prop in this.intermediateState) {
             if (JStage.Obj.TRANSFORMS.indexOf(prop) > -1) {
-                var transformStyle = '';
-
                 switch (prop) {
                     case 'translateX':
                     case 'translateY':
@@ -478,7 +490,7 @@ JStage.Obj.prototype = {
     },
 
     /**
-     * 将舞台元素准备好
+     * Get the object ready, placing and style it.
      */
     getReady: function() {
         var openSetup = this.getSetup(JStage.Obj.OPEN_SETUP);
@@ -499,6 +511,10 @@ JStage.Obj.prototype = {
         this.renderState();
     },
 
+    /**
+     * 
+     * @param {*} setupOffset 
+     */
     getSetupReady: function(setupOffset) {
         // 重置中间状态
         this.intermediateState = {};
@@ -520,12 +536,16 @@ JStage.Obj.prototype = {
         this.renderState();
     },
 
+    /**
+     * Set object dom
+     * @param {mixed} el 
+     */
     setEl: function(el) {
         this.el = JStage.getEl(el);
     },
 
     /**
-     * 判断元素是否正在执行动画
+     * Check if the object is animating
      * @returns {boolean}
      */
     isAnimating: function() {
@@ -533,11 +553,18 @@ JStage.Obj.prototype = {
     },
 
     /**
-     * 判断元素动画是否已经完成
+     * Check if the object's animation is complete
      * @returns {boolean}
      */
     isCompleted: function() {
         return this.status === JStage.Obj.IS_COMPLETED;
+    },
+
+    /**
+     * Set object animation is completed.
+     */
+    complete: function() {
+        this.status = JStage.Obj.IS_COMPLETED;
     },
 
     /**
@@ -610,7 +637,7 @@ JStage.Obj.prototype = {
             scriptDuration = script.duration + script.delay;
 
             if (duration < scriptDuration) {
-                durtaion = scriptDuration;
+                duration = scriptDuration;
             }
         });
 
@@ -639,20 +666,36 @@ JStage.Obj.prototype = {
     },
 
     /**
-     * 重置设置状态
+     * Reset setup status, include scripts in the setup
      * @param {object} setup
      */
     resetSetup: function(setup) {
         setup.scripts.forEach(function(script) {
+            /**
+             * Reset script status
+             */
             script.reset();
         });
     },
 
+    /**
+     * Get the setup ready
+     * @param {Object|string} offset 
+     */
     standby: function(offset) {
         var setup = typeof offset === 'object' ? offset : this.getSetup(offset);
 
         if (undefined === setup) {
             return;
+        }
+
+        /**
+         * If the setup is a loop setup, should get the setups in this ready
+         */
+        if (setup.setups.length > 0) {
+            setup.setups.forEach(function(loopSetup) {
+                this.standby(loopSetup);
+            }, this);
         }
 
         this.currentSetup = setup;
@@ -661,6 +704,21 @@ JStage.Obj.prototype = {
         this.resetSetup(setup);
     },
 
+    /**
+     * Get the setup in side the loop ready
+     * @param {Object} setup Loop setup
+     */
+    standbyLoop: function(setup) {
+        this.standby(setup.setups[setup.index]);
+
+        // Override current setup to current loop setup
+        this.currentSetup = setup;
+    },
+
+    /**
+     * Check if object has specified setup
+     * @param {string} offset 
+     */
     hasSetup: function(offset) {
         return undefined !== this.setups[offset];
     }

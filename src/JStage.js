@@ -230,17 +230,12 @@ JStage.prototype = {
         });
     },
 
-    startLoop: function(offset, setupOffsets) {
-        if (!this.loops[offset]) {
-            this.loops[offset] = {
-                currentIndex: 0,
-                setupOffsets: []
-            };
-
-            setupOffsets.forEach(function (setupOffset) {
-                this.loops[offset].setupOffsets.push(setupOffset);
-            });
-        }
+    stopSetup: function(offset) {
+        this.objs.forEach(function(obj) {
+            if (obj.hasSetup(offset)) {
+                obj.stop(offset);
+            }
+        });
     },
 
     update: function(timestamp) {
@@ -251,7 +246,6 @@ JStage.prototype = {
         this.currentTimestamp = timestamp;
 
         this.updateSetup(timestamp);
-        this.updateLoop(timestamp);
 
         window.requestAnimationFrame(this.update.bind(this));
     },
@@ -276,30 +270,6 @@ JStage.prototype = {
                 this.removeFromCurrentSetups(setupOffset);
             }
         }, this);
-    },
-
-    updateLoop: function() {
-        // this.loops.forEach(function(loop) {
-        //     var finished;
-        //     var setupOffset = loop.setupOffsets[loop.currentIndex];
-
-        //     this.objs.forEach(function(obj) {
-        //         if (obj.hasSetup(setupOffset) &&
-        //             !(obj.isStatic() || obj.isCompleted())
-        //         ) {
-        //             finished = false;
-        //             obj.update(setupOffset)
-        //         }
-        //     }, this);
-
-        //     if (finished !== false) {
-        //         if ((loop.currentIndex + 1) > loop.setupOffsets.length) {
-        //             loop.currentIndex = 0;
-        //         } else {
-        //             loop.currentIndex++;
-        //         }
-        //     }
-        // });
     },
 
     setTime: function(time) {
