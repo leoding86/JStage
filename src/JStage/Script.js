@@ -6,51 +6,51 @@
  * @param {string} timingFunction
  * @param {int} delay 毫秒单位
  */
-JStage.Script = function(property, value, duration, delay, timingFunction) {
+var Script = function(property, value, duration, delay, timingFunction) {
     this.transforms = ['scaleX', 'scaleY', 'skewX', 'skewY', 'rotate', 'translateX', 'translateY'];
 
-    this.id = JStage.Script.i++;
+    this.id = Script.i++;
     this.property = property;
     this.value = value;
     this.duration = this.normalizeTime(duration);
     this.timingFunction = !!timingFunction ? timingFunction : 'linear';
     this.delay = this.normalizeTime(delay);
-    this.status = JStage.Script.IDLE;
+    this.status = Script.IDLE;
 };
 
-JStage.Script.i = 0;
-JStage.Script.IDLE = 0;
-JStage.Script.EXECUTING = 1;
-JStage.Script.SKIP = 2;
-JStage.Script.COMPLETE = 3;
+Script.i = 0;
+Script.IDLE = 0;
+Script.EXECUTING = 1;
+Script.SKIP = 2;
+Script.COMPLETE = 3;
 
-JStage.Script.prototype = {
+Script.prototype = {
     reset: function() {
-        this.status = JStage.Script.IDLE;
+        this.status = Script.IDLE;
     },
 
     executing: function() {
-        this.status = JStage.Script.EXECUTING;
+        this.status = Script.EXECUTING;
     },
 
     skip: function() {
-        this.status = JStage.Script.SKIP;
+        this.status = Script.SKIP;
     },
 
     complete: function() {
-        this.status = JStage.Script.COMPLETE;
+        this.status = Script.COMPLETE;
     },
 
     isExecuting: function() {
-        return this.status === JStage.Script.EXECUTING;
+        return this.status === Script.EXECUTING;
     },
 
     isSkip: function() {
-        return this.status === JStage.Script.SKIP;
+        return this.status === Script.SKIP;
     },
 
     isComplete: function() {
-        return this.status === JStage.Script.COMPLETE;
+        return this.status === Script.COMPLETE;
     },
 
     normalizeTime: function(time) {
@@ -77,3 +77,5 @@ JStage.Script.prototype = {
         return progress * this.value;
     }
 };
+
+export default Script;

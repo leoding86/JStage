@@ -1,4 +1,7 @@
-JStage.Obj = function(el, width, height, left, top) {
+import Script from './Script';
+import JStage from './JStage';
+
+var Obj = function(el, width, height, left, top) {
     this.el, // dom对象
     this.state = {},
     this.intermediateState = {} // 中间状态
@@ -14,14 +17,14 @@ JStage.Obj = function(el, width, height, left, top) {
     this.top,
     this.duration = 0;
     this.stage,
-    this.status = JStage.Obj.IS_STATIC,
+    this.status = Obj.IS_STATIC,
 
     this.setEl(el);
     this.setSize(width, height);
     this.setPosition(left, top);
 }
 
-JStage.Obj.PROP_DEFAULT = {
+Obj.PROP_DEFAULT = {
     scale   : 1,
     scaleX  : 1,
     scaleY  : 1,
@@ -32,7 +35,7 @@ JStage.Obj.PROP_DEFAULT = {
     skewX   : 0,
     skewY   : 0
 };
-JStage.Obj.TRANSFORMS = [
+Obj.TRANSFORMS = [
     'translateX',
     'translateY',
     'rotate',
@@ -43,14 +46,14 @@ JStage.Obj.TRANSFORMS = [
     'scaleX',
     'scaleY',
 ];
-JStage.Obj.INIT_SETUP = 'INIT_SETUP'; // 初始化状态
-JStage.Obj.OPEN_SETUP = 'OPEN_SETUP'; // 开场状态
-JStage.Obj.IS_IDLE = 0;
-JStage.Obj.IS_COMPLETED = 2;
-JStage.Obj.IS_ANIMATING = 3;
-JStage.Obj.IS_STATIC = 4;
+Obj.INIT_SETUP = 'INIT_SETUP'; // 初始化状态
+Obj.OPEN_SETUP = 'OPEN_SETUP'; // 开场状态
+Obj.IS_IDLE = 0;
+Obj.IS_COMPLETED = 2;
+Obj.IS_ANIMATING = 3;
+Obj.IS_STATIC = 4;
 
-JStage.Obj.addBatchSetups = function(objs, setups) {
+Obj.addBatchSetups = function(objs, setups) {
     objs.forEach(function(obj) {
         for (var offset in setups) {
             obj.addSetup(offset, setups[offset]);
@@ -58,7 +61,7 @@ JStage.Obj.addBatchSetups = function(objs, setups) {
     });
 }
 
-JStage.Obj.prototype = {
+Obj.prototype = {
     setState: function(prop, value) {
         this.state[prop] = value;
         return this;
@@ -69,10 +72,10 @@ JStage.Obj.prototype = {
      * @param {string} prop
      */
     getPropDefaultValue: function(prop) {
-        if (undefined === JStage.Obj.PROP_DEFAULT[prop]) {
+        if (undefined === Obj.PROP_DEFAULT[prop]) {
             return 0;
         } else {
-            return JStage.Obj.PROP_DEFAULT[prop];
+            return Obj.PROP_DEFAULT[prop];
         }
     },
 
@@ -132,7 +135,7 @@ JStage.Obj.prototype = {
     },
 
     addOpenSetup: function(scripts) {
-        this.addSetup(JStage.Obj.OPEN_SETUP, scripts);
+        this.addSetup(Obj.OPEN_SETUP, scripts);
         return this;
     },
 
@@ -144,10 +147,10 @@ JStage.Obj.prototype = {
     addScript: function(offset, script) {
         this.createSetup(offset);
 
-        this.status = JStage.Obj.IS_IDLE;
+        this.status = Obj.IS_IDLE;
 
         this.setups[offset].scripts.push(
-            new JStage.Script(script.property, script.value, script.duration, script.delay, script.timingFunction)
+            new Script(script.property, script.value, script.duration, script.delay, script.timingFunction)
         );
 
         return this;
@@ -232,7 +235,7 @@ JStage.Obj.prototype = {
     },
 
     update: function(setupOffset) {
-        this.render(setupOffset === undefined ? JStage.Obj.OPEN_SETUP : setupOffset);
+        this.render(setupOffset === undefined ? Obj.OPEN_SETUP : setupOffset);
     },
 
     stop: function(setupOffset) {
@@ -257,7 +260,7 @@ JStage.Obj.prototype = {
             // loop
 
             if (!loopSetup.startTimestamp) {
-                loopSetup.startTimestamp = !!performance ? performance.now() : Date.now();
+                loopSetup.startTimestamp = JStage.now();
             }
 
             var startTimestamp;
@@ -387,9 +390,9 @@ JStage.Obj.prototype = {
             }, this);
 
             if (complete === false) {
-                this.status = JStage.Obj.IS_ANIMATING;
+                this.status = Obj.IS_ANIMATING;
             } else {
-                this.status = JStage.Obj.IS_COMPLETED;
+                this.status = Obj.IS_COMPLETED;
                 setup.startTimestamp = null;
             }
         }
@@ -401,7 +404,7 @@ JStage.Obj.prototype = {
         var transformStyle = '';
 
         for (var prop in this.intermediateState) {
-            if (JStage.Obj.TRANSFORMS.indexOf(prop) > -1) {
+            if (Obj.TRANSFORMS.indexOf(prop) > -1) {
                 switch (prop) {
                     case 'translateX':
                     case 'translateY':
@@ -429,7 +432,7 @@ JStage.Obj.prototype = {
         }
 
         if (undefined !== transformStyle) {
-            this.el.style.transform = transformStyle;
+            JStage.setStyle(this.el, 'transform', transformStyle);
         }
     },
 
@@ -493,7 +496,7 @@ JStage.Obj.prototype = {
      * Get the object ready, placing and style it.
      */
     getReady: function() {
-        var openSetup = this.getSetup(JStage.Obj.OPEN_SETUP);
+        var openSetup = this.getSetup(Obj.OPEN_SETUP);
 
         if (undefined !== openSetup) {
             this.resetSetup(openSetup);
@@ -549,7 +552,7 @@ JStage.Obj.prototype = {
      * @returns {boolean}
      */
     isAnimating: function() {
-        return this.status === JStage.Obj.IS_ANIMATING;
+        return this.status === Obj.IS_ANIMATING;
     },
 
     /**
@@ -557,14 +560,14 @@ JStage.Obj.prototype = {
      * @returns {boolean}
      */
     isCompleted: function() {
-        return this.status === JStage.Obj.IS_COMPLETED;
+        return this.status === Obj.IS_COMPLETED;
     },
 
     /**
      * Set object animation is completed.
      */
     complete: function() {
-        this.status = JStage.Obj.IS_COMPLETED;
+        this.status = Obj.IS_COMPLETED;
     },
 
     /**
@@ -572,7 +575,7 @@ JStage.Obj.prototype = {
      * @returns {boolean}
      */
     isStatic: function() {
-        return this.status === JStage.Obj.IS_STATIC;
+        return this.status === Obj.IS_STATIC;
     },
 
     /**
@@ -580,7 +583,7 @@ JStage.Obj.prototype = {
      * @returns {boolean}
      */
     isIdle: function() {
-        return this.status === JStage.Obj.IS_IDLE;
+        return this.status === Obj.IS_IDLE;
     },
 
     /**
@@ -700,7 +703,7 @@ JStage.Obj.prototype = {
 
         this.currentSetup = setup;
         setup.startTimestamp = null;
-        this.status = JStage.Obj.IS_IDLE;
+        this.status = Obj.IS_IDLE;
         this.resetSetup(setup);
     },
 
@@ -723,3 +726,5 @@ JStage.Obj.prototype = {
         return undefined !== this.setups[offset];
     }
 };
+
+export default Obj;
