@@ -23,6 +23,10 @@ function JStage(el, width, height) {
 }
 
 JStage.interval = 13;
+JStage.inProgress = false;
+JStage.IS_IDLE = 0;
+JStage.IS_FINISHED = 1;
+JStage.IS_ANIMATING = 2;
 
 JStage.now = function() {
     if (performance && performance.now) {
@@ -89,10 +93,6 @@ JStage.getStyle = function(el, prop) {
         return getComputedStyle(el, null).getPropertyValue(prop);
     }
 };
-
-JStage.IS_IDLE = 0;
-JStage.IS_FINISHED = 1;
-JStage.IS_ANIMATING = 2;
 
 JStage.prototype = {
     /**
