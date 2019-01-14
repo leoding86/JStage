@@ -22,10 +22,7 @@
   "devDependencies": {
     "es5-shim": "^4.5.12",
     "gulp": "^4.0.0",
-    "gulp-concat": "^2.6.1",
-    "gulp-rename": "^1.4.0",
-    "gulp-rollup": "^2.16.2",
-    "gulp-sourcemaps": "^2.6.4",
-    "gulp-uglify": "^3.0.1"
+    "rollup": "^1.1.0",
+    "rollup-plugin-uglify": "^6.0.1"
   }
 }
