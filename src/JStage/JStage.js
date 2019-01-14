@@ -1,4 +1,5 @@
 import Obj from './Obj';
+import Effect from './Effect';
 
 /**
  * 舞台构造函数
@@ -8,6 +9,15 @@ import Obj from './Obj';
  * @param {int} height 舞台的标准高度，不是元素的实际高度
  */
 function JStage(el, width, height) {
+    if (!JStage.createFromStatic) {
+        throw 'You should use JStage.createStage() method to create stage'
+    }
+
+    /**
+     * Reset for next calling
+     */
+    JStage.createFromStatic = false;
+
     this.el = JStage.getEl(el);
     this.width = width,
     this.height = height,
@@ -15,18 +25,20 @@ function JStage(el, width, height) {
     this.startTimestamp,
     this.currentTimestamp,
     this.duration = 0,
-    this.status = JStage.IS_IDLE,
+    this.status = JStage.STATUS_IDLE,
     this.currentSetupOffsets = [],
     this.loops = [],
     this.resources = [],
     this.objs = [];
 }
 
+JStage.createFromStatic = false;
 JStage.interval = 13;
 JStage.inProgress = false;
-JStage.IS_IDLE = 0;
-JStage.IS_FINISHED = 1;
-JStage.IS_ANIMATING = 2;
+JStage.stages = [];
+JStage.STATUS_IDLE = 0;
+JStage.STATUS_IN_PROGRESS = 1;
+JStage.STATUS_COMPLETE = 2;
 
 JStage.now = function() {
     if (performance && performance.now) {
@@ -58,8 +70,14 @@ JStage.setStyle = function(node, property, value) {
 
 JStage.getEl = function(el) {
     if (typeof el === 'string') {
-        return document.querySelector(el);
-    } else if (el instanceof jQuery) {
+        if (document.querySelector) {
+            return document.querySelector(el);
+        } else if (el.indexOf('#') === 0) {
+            return document.getElementById(el.slice(1));
+        } else {
+            throw 'el should be a string if it\'s not a Node';
+        }
+    } else if (jQuery && el instanceof jQuery) {
         return el[0];
     } else if (typeof el === 'object' &&
         (el instanceof Node && el.nodeType > 0)
@@ -92,6 +110,22 @@ JStage.getStyle = function(el, prop) {
     } else {
         return getComputedStyle(el, null).getPropertyValue(prop);
     }
+};
+
+/**
+ * Static method for creating a stage and you should use this to create stage,
+ * because JStage will maintain a array of stages.
+ * @param {mixed} el
+ * @param {int} width
+ * @param {int} height
+ */
+JStage.create = function(el, width, height) {
+    JStage.createFromStatic = true;
+
+    var stage = new JStage(el, width, height);
+    JStage.stages.push(stage);
+
+    return stage;
 };
 
 JStage.prototype = {
@@ -148,8 +182,16 @@ JStage.prototype = {
         return obj;
     },
 
-    isAnimating: function() {
-        return this.status === JStage.IS_ANIMATING;
+    inProgress: function() {
+        return this.status === JStage.STATUS_IN_PROGRESS;
+    },
+
+    isComplete: function() {
+        return this.status === JStage.STATUS_COMPLETE;
+    },
+
+    isIdle: function() {
+        return this.status === JStage.STATUS_IDLE;
     },
 
     inSetup: function(setupOffset) {
@@ -191,9 +233,14 @@ JStage.prototype = {
         });
     },
 
+    /**
+     * Prepare for starting setup
+     * @param {string} setupOffset
+     */
     standby: function(setupOffset) {
         this.startTimestamp = null;
         this.currentTimestamp = null;
+        this.status = JStage.STATUS_IDLE;
 
         if (undefined === setupOffset) {
             return;
@@ -244,20 +291,26 @@ JStage.prototype = {
     },
 
     startSetup: function(setupOffset) {
+        if (this.inSetup(setupOffset)) {
+            return;
+        }
+
         this.addCurrentSetupOffset(setupOffset);
         this.standby(setupOffset);
 
         this.startTimestamp = JStage.now();
 
-        if (!this.isAnimating()) {
-            this.status = JStage.IS_ANIMATING;
+        Effect.start();
 
-            if (window.requestAnimationFrame) {
-                window.requestAnimationFrame(this.update.bind(this));
-            } else {
-                setTimeout(this.update.bind(this), JStage.interval);
-            }
-        }
+        // if (!this.isAnimating()) {
+        //     this.status = JStage.IS_ANIMATING;
+
+        //     if (window.requestAnimationFrame) {
+        //         window.requestAnimationFrame(this.update.bind(this));
+        //     } else {
+        //         setTimeout(this.update.bind(this), JStage.interval);
+        //     }
+        // }
     },
 
     stopSetup: function(offset) {
@@ -268,38 +321,41 @@ JStage.prototype = {
         });
     },
 
+    /**
+     * Called from Effect.update method for updating stage
+     * @param {float} timestamp
+     */
     update: function(timestamp) {
-        this.currentTimestamp = timestamp ? timestamp : JStage.now();
+        if (this.isComplete()) {
+            return false;
+        }
 
         this.updateSetup(timestamp);
-
-        if (window.requestAnimationFrame) {
-            window.requestAnimationFrame(this.update.bind(this));
-        } else {
-            setTimeout(this.update.bind(this), JStage.interval);
-        }
+        return true;
     },
 
-    updateSetup: function() {
-        this.currentSetupOffsets.forEach(function(setupOffset) {
-            var finished;
+    updateSetup: function(timestamp) {
+        this.currentTimestamp = timestamp;
 
-            this.objs.forEach(function(obj) {
+        if (this.currentSetupOffsets.length > 0) {
+            this.status = JStage.STATUS_IN_PROGRESS;
 
-                // console.log(setupOffset, obj, obj.hasSetup(setupOffset), obj.isStatic(), obj.isCompleted());
+            this.currentSetupOffsets.forEach(function(setupOffset) {
+                var finished;
 
-                if (obj.hasSetup(setupOffset) &&
-                    !(obj.isStatic() || obj.isCompleted())
-                ) {
-                    finished = false;
-                    obj.update(setupOffset);
+                this.objs.forEach(function(obj) {
+                    if (obj.update(setupOffset)) {
+                        finished = false;
+                    }
+                }, this);
+
+                if (finished === undefined) {
+                    this.removeFromCurrentSetups(setupOffset);
                 }
             }, this);
-
-            if (finished === undefined) {
-                this.removeFromCurrentSetups(setupOffset);
-            }
-        }, this);
+        } else {
+            this.status = JStage.STATUS_COMPLETE;
+        }
     },
 
     setTime: function(time) {

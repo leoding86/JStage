@@ -1,5 +1,6 @@
 import Script from './Script';
 import JStage from './JStage';
+import Easing from './Easing';
 
 var Obj = function(el, width, height, left, top) {
     this.el, // dom对象
@@ -196,7 +197,8 @@ Obj.prototype = {
                 this.getPropValue(this.state, prop),
                 toValue
             ),
-            fromVal: this.getPropValue(this.state, prop)
+            fromVal: this.getPropValue(this.state, prop),
+            easing: script.timingFunction
         };
     },
 
@@ -231,11 +233,23 @@ Obj.prototype = {
      * @param {float} progress
      */
     updateIntermediateState: function(propDiff, progress) {
-        this.intermediateState[propDiff.prop] = progress * propDiff.diffVal + propDiff.fromVal;
+        this.intermediateState[propDiff.prop] = (propDiff.diffVal * Easing.applyFunc(propDiff.easing, progress)) + propDiff.fromVal;
     },
 
+    /**
+     *
+     * @param {string} setupOffset
+     * @returns {boolean} Return true if the object is updated otherwise return false
+     */
     update: function(setupOffset) {
-        this.render(setupOffset === undefined ? Obj.OPEN_SETUP : setupOffset);
+        if (this.hasSetup(setupOffset) &&
+            !(this.isStatic() || this.isCompleted())
+        ) {
+            this.render(setupOffset === undefined ? Obj.OPEN_SETUP : setupOffset);
+            return true;
+        }
+
+        return false;
     },
 
     stop: function(setupOffset) {
@@ -515,8 +529,8 @@ Obj.prototype = {
     },
 
     /**
-     * 
-     * @param {*} setupOffset 
+     *
+     * @param {*} setupOffset
      */
     getSetupReady: function(setupOffset) {
         // 重置中间状态
@@ -541,7 +555,7 @@ Obj.prototype = {
 
     /**
      * Set object dom
-     * @param {mixed} el 
+     * @param {mixed} el
      */
     setEl: function(el) {
         this.el = JStage.getEl(el);
@@ -683,7 +697,7 @@ Obj.prototype = {
 
     /**
      * Get the setup ready
-     * @param {Object|string} offset 
+     * @param {Object|string} offset
      */
     standby: function(offset) {
         var setup = typeof offset === 'object' ? offset : this.getSetup(offset);
@@ -720,7 +734,7 @@ Obj.prototype = {
 
     /**
      * Check if object has specified setup
-     * @param {string} offset 
+     * @param {string} offset
      */
     hasSetup: function(offset) {
         return undefined !== this.setups[offset];

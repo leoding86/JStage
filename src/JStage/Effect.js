@@ -12,19 +12,20 @@ var Effect = {
     },
 
     update: function(timestamp) {
+        var timestamp = timestamp ? timestamp : JStage.now();
+
         JStage.inProgress = true;
 
         JStage.stages.forEach(function(stage) {
-            stage.objs.forEach(function(obj) {
-                stage.currentTimestamp = timestamp ? timestamp : JStage.now();
-                stage.updateSetup(timestamp);
-            });
+            stage.update(timestamp);
         });
 
         if (window.requestAnimationFrame) {
             window.requestAnimationFrame(Effect.update)
         } else {
-            setTimeout(this.update, JStage.interval);
+            setTimeout(Effect.update, JStage.interval);
         }
     }
 }
+
+export default Effect;
